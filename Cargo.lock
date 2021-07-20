@@ -1755,10 +1755,13 @@ version = "0.1.0"
 dependencies = [
  "activitystreams",
  "activitystreams-ext",
+ "anyhow",
  "async-trait",
  "lemmy_apub_lib_derive",
  "lemmy_utils",
  "lemmy_websocket",
+ "log",
+ "reqwest",
  "serde",
  "url",
 ]
@@ -1854,6 +1857,7 @@ dependencies = [
  "diesel",
  "lazy_static",
  "lemmy_api_common",
+ "lemmy_apub_lib",
  "lemmy_db_queries",
  "lemmy_db_schema",
  "lemmy_db_views",

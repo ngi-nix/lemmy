@@ -24,20 +24,17 @@ use activitystreams::{
   prelude::*,
   public,
 };
-use anyhow::anyhow;
 use itertools::Itertools;
-use lemmy_api_common::{blocking, WebFingerResponse};
+use lemmy_api_common::blocking;
+use lemmy_apub_lib::webfinger::{webfinger_resolve_actor, WebfingerType};
 use lemmy_db_queries::{Crud, DbPool};
 use lemmy_db_schema::source::{comment::Comment, community::Community, person::Person, post::Post};
 use lemmy_utils::{
-  request::{retry, RecvError},
-  settings::structs::Settings,
   utils::{scrape_text_for_mentions, MentionData},
   LemmyError,
 };
 use lemmy_websocket::LemmyContext;
 use log::debug;
-use reqwest::Client;
 use serde_json::Error;
 use url::Url;
 
@@ -369,7 +366,14 @@ async fn collect_non_local_mentions(
 
   for mention in &mentions {
     // TODO should it be fetching it every time?
-    if let Ok(actor_id) = fetch_webfinger_url(mention, context.client()).await {
+    if let Ok(actor_id) = webfinger_resolve_actor(
+      &mention.name,
+      &mention.domain,
+      WebfingerType::Person,
+      context.client(),
+    )
+    .await
+    {
       debug!("mention actor_id: {}", actor_id);
       addressed_ccs.push(actor_id.to_owned().to_string().parse()?);
 
@@ -407,34 +411,4 @@ async fn get_comment_parent_creator(
     parent_post.creator_id
   };
   Ok(blocking(pool, move |conn| Person::read(conn, parent_creator_id)).await??)
-}
-
-/// Turns a person id like `@name@example.com` into an apub ID, like `https://example.com/user/name`,
-/// using webfinger.
-async fn fetch_webfinger_url(mention: &MentionData, client: &Client) -> Result<Url, LemmyError> {
-  let fetch_url = format!(
-    "{}://{}/.well-known/webfinger?resource=acct:{}@{}",
-    Settings::get().get_protocol_string(),
-    mention.domain,
-    mention.name,
-    mention.domain
-  );
-  debug!("Fetching webfinger url: {}", &fetch_url);
-
-  let response = retry(|| client.get(&fetch_url).send()).await?;
-
-  let res: WebFingerResponse = response
-    .json()
-    .await
-    .map_err(|e| RecvError(e.to_string()))?;
-
-  let link = res
-    .links
-    .iter()
-    .find(|l| l.type_.eq(&Some("application/activity+json".to_string())))
-    .ok_or_else(|| anyhow!("No application/activity+json link found."))?;
-  link
-    .href
-    .to_owned()
-    .ok_or_else(|| anyhow!("No href found.").into())
 }

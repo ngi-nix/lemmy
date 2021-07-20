@@ -9,6 +9,8 @@ use lemmy_utils::LemmyError;
 use lemmy_websocket::LemmyContext;
 use url::Url;
 
+pub mod webfinger;
+
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub enum PublicUrl {
   #[serde(rename = "https://www.w3.org/ns/activitystreams#Public")]
