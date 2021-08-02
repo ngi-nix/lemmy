@@ -13,14 +13,12 @@ use lemmy_db_schema::source::post::*;
 use lemmy_db_views::post_view::PostView;
 use lemmy_utils::{
   request::fetch_iframely_and_pictrs_data,
-  settings::structs::Settings,
   utils::{check_slurs, check_slurs_opt, clean_url_params, is_valid_post_title},
   ApiError,
   ConnectionId,
   LemmyError,
 };
 use lemmy_websocket::{messages::SendPost, LemmyContext, UserOperationCrud};
-use url::Url;
 use webmention::Webmention;
 
 #[async_trait::async_trait(?Send)]
@@ -111,8 +109,7 @@ impl PerformCrud for CreatePost {
       .await?;
 
     if let Some(url) = updated_post.url {
-      let hostname = Url::parse(&Settings::get().get_protocol_and_hostname())?;
-      let mut webmention: Webmention = (hostname, url.into_inner()).into();
+      let mut webmention: Webmention = (updated_post.ap_id.into(), url.into_inner()).into();
       webmention.send().await?;
     }
 
