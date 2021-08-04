@@ -470,7 +470,7 @@ impl Perform for BlockPerson {
     context: &Data<LemmyContext>,
     _websocket_id: Option<ConnectionId>,
   ) -> Result<BlockPersonResponse, LemmyError> {
-    let data: &BlockPerson = &self;
+    let data: &BlockPerson = self;
     let local_user_view = get_local_user_view_from_jwt(&data.auth, context.pool()).await?;
 
     let recipient_id = data.person_id;
@@ -849,7 +849,7 @@ impl Perform for GetBlockedCommunities {
     context: &Data<LemmyContext>,
     _websocket_id: Option<ConnectionId>,
   ) -> Result<GetBlockedCommunitiesResponse, LemmyError> {
-    let data: &GetBlockedCommunities = &self;
+    let data: &GetBlockedCommunities = self;
     let local_user_view = get_local_user_view_from_jwt(&data.auth, context.pool()).await?;
 
     let person_id = local_user_view.person.id;
@@ -873,7 +873,7 @@ impl Perform for GetBlockedPersons {
     context: &Data<LemmyContext>,
     _websocket_id: Option<ConnectionId>,
   ) -> Result<GetBlockedPersonsResponse, LemmyError> {
-    let data: &GetBlockedPersons = &self;
+    let data: &GetBlockedPersons = self;
     let local_user_view = get_local_user_view_from_jwt(&data.auth, context.pool()).await?;
 
     let person_id = local_user_view.person.id;
