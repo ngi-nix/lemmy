@@ -1,5 +1,5 @@
 {
-  description = "A Rust web server including a NixOS module";
+  description = "Building a federated alternative to reddit in rust ";
 
   inputs = {
     # Nixpkgs / NixOS version to use.
