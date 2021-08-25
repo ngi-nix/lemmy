@@ -2,17 +2,16 @@ use crate::PerformCrud;
 use actix_web::web::Data;
 use lemmy_api_common::{blocking, check_community_ban, get_local_user_view_from_jwt, post::*};
 use lemmy_apub::activities::{post::create_or_update::CreateOrUpdatePost, CreateOrUpdateType};
-use lemmy_db_queries::{source::post::Post_, Crud, DeleteableOrRemoveable};
+use lemmy_db_queries::{source::post::Post_, Crud};
 use lemmy_db_schema::{naive_now, source::post::*};
-use lemmy_db_views::post_view::PostView;
 use lemmy_utils::{
-  request::fetch_iframely_and_pictrs_data,
+  request::fetch_site_data,
   utils::{check_slurs_opt, clean_url_params, is_valid_post_title},
   ApiError,
   ConnectionId,
   LemmyError,
 };
-use lemmy_websocket::{messages::SendPost, LemmyContext, UserOperationCrud};
+use lemmy_websocket::{send::send_post_ws_message, LemmyContext, UserOperationCrud};
 
 #[async_trait::async_trait(?Send)]
 impl PerformCrud for EditPost {
@@ -50,11 +49,10 @@ impl PerformCrud for EditPost {
       return Err(ApiError::err("no_post_edit_allowed").into());
     }
 
-    // Fetch Iframely and Pictrs cached image
+    // Fetch post links and Pictrs cached image
     let data_url = data.url.as_ref();
-    let (iframely_response, pictrs_thumbnail) =
-      fetch_iframely_and_pictrs_data(context.client(), data_url).await?;
-    let (embed_title, embed_description, embed_html) = iframely_response
+    let (metadata_res, pictrs_thumbnail) = fetch_site_data(context.client(), data_url).await;
+    let (embed_title, embed_description, embed_html) = metadata_res
       .map(|u| (u.title, u.description, u.html))
       .unwrap_or((None, None, None));
 
@@ -100,25 +98,13 @@ impl PerformCrud for EditPost {
     )
     .await?;
 
-    let post_id = data.post_id;
-    let mut post_view = blocking(context.pool(), move |conn| {
-      PostView::read(conn, post_id, Some(local_user_view.person.id))
-    })
-    .await??;
-
-    // Blank out deleted info
-    if post_view.post.deleted || post_view.post.removed {
-      post_view.post = post_view.post.blank_out_deleted_or_removed_info();
-    }
-
-    let res = PostResponse { post_view };
-
-    context.chat_server().do_send(SendPost {
-      op: UserOperationCrud::EditPost,
-      post: res.clone(),
+    send_post_ws_message(
+      data.post_id,
+      UserOperationCrud::EditPost,
       websocket_id,
-    });
-
-    Ok(res)
+      Some(local_user_view.person.id),
+      context,
+    )
+    .await
   }
 }

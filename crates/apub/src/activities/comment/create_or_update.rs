@@ -1,6 +1,6 @@
 use crate::{
   activities::{
-    comment::{collect_non_local_mentions, get_notif_recipients, send_websocket_message},
+    comment::{collect_non_local_mentions, get_notif_recipients},
     community::announce::AnnouncableActivities,
     extract_community,
     generate_activity_id,
@@ -13,32 +13,31 @@ use crate::{
   objects::{comment::Note, FromApub, ToApub},
   ActorType,
 };
-use activitystreams::link::Mention;
+use activitystreams::{base::AnyBase, link::Mention, primitives::OneOrMany, unparsed::Unparsed};
 use lemmy_api_common::blocking;
-use lemmy_apub_lib::{
-  values::PublicUrl,
-  verify_domains_match,
-  ActivityCommonFields,
-  ActivityHandler,
-};
+use lemmy_apub_lib::{values::PublicUrl, verify_domains_match, ActivityFields, ActivityHandler};
 use lemmy_db_queries::Crud;
 use lemmy_db_schema::source::{comment::Comment, community::Community, person::Person, post::Post};
 use lemmy_utils::LemmyError;
-use lemmy_websocket::{LemmyContext, UserOperationCrud};
+use lemmy_websocket::{send::send_comment_ws_message, LemmyContext, UserOperationCrud};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, ActivityFields)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateOrUpdateComment {
+  actor: Url,
   to: PublicUrl,
   object: Note,
   cc: Vec<Url>,
   tag: Vec<Mention>,
   #[serde(rename = "type")]
   kind: CreateOrUpdateType,
+  id: Url,
+  #[serde(rename = "@context")]
+  context: OneOrMany<AnyBase>,
   #[serde(flatten)]
-  common: ActivityCommonFields,
+  unparsed: Unparsed,
 }
 
 impl CreateOrUpdateComment {
@@ -61,17 +60,15 @@ impl CreateOrUpdateComment {
     let maa = collect_non_local_mentions(comment, &community, context).await?;
 
     let create_or_update = CreateOrUpdateComment {
+      actor: actor.actor_id(),
       to: PublicUrl::Public,
       object: comment.to_apub(context.pool()).await?,
       cc: maa.ccs,
       tag: maa.tags,
       kind,
-      common: ActivityCommonFields {
-        context: lemmy_context(),
-        id: id.clone(),
-        actor: actor.actor_id(),
-        unparsed: Default::default(),
-      },
+      id: id.clone(),
+      context: lemmy_context(),
+      unparsed: Default::default(),
     };
 
     let activity = AnnouncableActivities::CreateOrUpdateComment(create_or_update);
@@ -88,15 +85,10 @@ impl ActivityHandler for CreateOrUpdateComment {
   ) -> Result<(), LemmyError> {
     let community = extract_community(&self.cc, context, request_counter).await?;
 
-    verify_activity(self.common())?;
-    verify_person_in_community(
-      &self.common.actor,
-      &community.actor_id(),
-      context,
-      request_counter,
-    )
-    .await?;
-    verify_domains_match(&self.common.actor, &self.object.id)?;
+    verify_activity(self)?;
+    verify_person_in_community(&self.actor, &community.actor_id(), context, request_counter)
+      .await?;
+    verify_domains_match(&self.actor, self.object.id_unchecked())?;
     // TODO: should add a check that the correct community is in cc (probably needs changes to
     //       comment deserialization)
     self.object.verify(context, request_counter).await?;
@@ -104,28 +96,20 @@ impl ActivityHandler for CreateOrUpdateComment {
   }
 
   async fn receive(
-    &self,
+    self,
     context: &LemmyContext,
     request_counter: &mut i32,
   ) -> Result<(), LemmyError> {
-    let comment = Comment::from_apub(
-      &self.object,
-      context,
-      self.common.actor.clone(),
-      request_counter,
-      false,
-    )
-    .await?;
-    let recipients =
-      get_notif_recipients(&self.common.actor, &comment, context, request_counter).await?;
+    let comment = Comment::from_apub(&self.object, context, &self.actor, request_counter).await?;
+    let recipients = get_notif_recipients(&self.actor, &comment, context, request_counter).await?;
     let notif_type = match self.kind {
       CreateOrUpdateType::Create => UserOperationCrud::CreateComment,
       CreateOrUpdateType::Update => UserOperationCrud::EditComment,
     };
-    send_websocket_message(comment.id, recipients, notif_type, context).await
-  }
-
-  fn common(&self) -> &ActivityCommonFields {
-    &self.common
+    send_comment_ws_message(
+      comment.id, notif_type, None, None, None, recipients, context,
+    )
+    .await?;
+    Ok(())
   }
 }

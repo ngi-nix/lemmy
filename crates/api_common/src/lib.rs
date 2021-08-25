@@ -10,6 +10,7 @@ use diesel::PgConnection;
 use lemmy_db_queries::{
   source::{
     community::{CommunityModerator_, Community_},
+    person_block::PersonBlock_,
     site::Site_,
   },
   Crud,
@@ -21,6 +22,7 @@ use lemmy_db_schema::{
     comment::Comment,
     community::{Community, CommunityModerator},
     person::Person,
+    person_block::PersonBlock,
     person_mention::{PersonMention, PersonMentionForm},
     post::{Post, PostRead, PostReadForm},
     site::Site,
@@ -44,25 +46,7 @@ use lemmy_utils::{
   LemmyError,
 };
 use log::error;
-use serde::{Deserialize, Serialize};
 use url::Url;
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct WebFingerLink {
-  pub rel: Option<String>,
-  #[serde(rename(serialize = "type", deserialize = "type"))]
-  pub type_: Option<String>,
-  pub href: Option<Url>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub template: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct WebFingerResponse {
-  pub subject: String,
-  pub aliases: Vec<Url>,
-  pub links: Vec<WebFingerLink>,
-}
 
 pub async fn blocking<F, T>(pool: &DbPool, f: F) -> Result<T, LemmyError>
 where
@@ -272,6 +256,11 @@ pub async fn get_local_user_view_from_jwt(
     return Err(ApiError::err("site_ban").into());
   }
 
+  // Check for user deletion
+  if local_user_view.person.deleted {
+    return Err(ApiError::err("deleted").into());
+  }
+
   check_validator_time(&local_user_view.local_user.validator_time, &claims)?;
 
   Ok(local_user_view)
@@ -343,6 +332,19 @@ pub async fn check_community_ban(
     move |conn: &'_ _| CommunityPersonBanView::get(conn, person_id, community_id).is_ok();
   if blocking(pool, is_banned).await? {
     Err(ApiError::err("community_ban").into())
+  } else {
+    Ok(())
+  }
+}
+
+pub async fn check_person_block(
+  my_id: PersonId,
+  potential_blocker_id: PersonId,
+  pool: &DbPool,
+) -> Result<(), LemmyError> {
+  let is_blocked = move |conn: &'_ _| PersonBlock::read(conn, potential_blocker_id, my_id).is_ok();
+  if blocking(pool, is_blocked).await? {
+    Err(ApiError::err("person_block").into())
   } else {
     Ok(())
   }

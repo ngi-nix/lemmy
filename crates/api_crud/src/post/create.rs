@@ -19,15 +19,14 @@ use lemmy_apub::{
 };
 use lemmy_db_queries::{source::post::Post_, Crud, Likeable};
 use lemmy_db_schema::source::post::*;
-use lemmy_db_views::post_view::PostView;
 use lemmy_utils::{
-  request::fetch_iframely_and_pictrs_data,
+  request::fetch_site_data,
   utils::{check_slurs, check_slurs_opt, clean_url_params, is_valid_post_title},
   ApiError,
   ConnectionId,
   LemmyError,
 };
-use lemmy_websocket::{messages::SendPost, LemmyContext, UserOperationCrud};
+use lemmy_websocket::{send::send_post_ws_message, LemmyContext, UserOperationCrud};
 
 #[async_trait::async_trait(?Send)]
 impl PerformCrud for CreatePost {
@@ -50,11 +49,10 @@ impl PerformCrud for CreatePost {
 
     check_community_ban(local_user_view.person.id, data.community_id, context.pool()).await?;
 
-    // Fetch Iframely and pictrs cached image
+    // Fetch post links and pictrs cached image
     let data_url = data.url.as_ref();
-    let (iframely_response, pictrs_thumbnail) =
-      fetch_iframely_and_pictrs_data(context.client(), data_url).await?;
-    let (embed_title, embed_description, embed_html) = iframely_response
+    let (metadata_res, pictrs_thumbnail) = fetch_site_data(context.client(), data_url).await;
+    let (embed_title, embed_description, embed_html) = metadata_res
       .map(|u| (u.title, u.description, u.html))
       .unwrap_or((None, None, None));
 
@@ -129,22 +127,13 @@ impl PerformCrud for CreatePost {
     )
     .await?;
 
-    // Refetch the view
-    let inserted_post_id = inserted_post.id;
-    let post_view = blocking(context.pool(), move |conn| {
-      PostView::read(conn, inserted_post_id, Some(local_user_view.person.id))
-    })
-    .await?
-    .map_err(|_| ApiError::err("couldnt_find_post"))?;
-
-    let res = PostResponse { post_view };
-
-    context.chat_server().do_send(SendPost {
-      op: UserOperationCrud::CreatePost,
-      post: res.clone(),
+    send_post_ws_message(
+      inserted_post.id,
+      UserOperationCrud::CreatePost,
       websocket_id,
-    });
-
-    Ok(res)
+      Some(local_user_view.person.id),
+      context,
+    )
+    .await
   }
 }

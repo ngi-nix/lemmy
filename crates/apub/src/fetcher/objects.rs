@@ -17,7 +17,7 @@ use url::Url;
 /// pulled from its apub ID, inserted and returned.
 ///
 /// The parent community is also pulled if necessary. Comments are not pulled.
-pub async fn get_or_fetch_and_insert_post(
+pub(crate) async fn get_or_fetch_and_insert_post(
   post_ap_id: &Url,
   context: &LemmyContext,
   recursion_counter: &mut i32,
@@ -34,14 +34,7 @@ pub async fn get_or_fetch_and_insert_post(
       debug!("Fetching and creating remote post: {}", post_ap_id);
       let page =
         fetch_remote_object::<Page>(context.client(), post_ap_id, recursion_counter).await?;
-      let post = Post::from_apub(
-        &page,
-        context,
-        post_ap_id.to_owned(),
-        recursion_counter,
-        false,
-      )
-      .await?;
+      let post = Post::from_apub(&page, context, post_ap_id, recursion_counter).await?;
 
       Ok(post)
     }
@@ -53,7 +46,7 @@ pub async fn get_or_fetch_and_insert_post(
 /// pulled from its apub ID, inserted and returned.
 ///
 /// The parent community, post and comment are also pulled if necessary.
-pub async fn get_or_fetch_and_insert_comment(
+pub(crate) async fn get_or_fetch_and_insert_comment(
   comment_ap_id: &Url,
   context: &LemmyContext,
   recursion_counter: &mut i32,
@@ -73,14 +66,7 @@ pub async fn get_or_fetch_and_insert_comment(
       );
       let comment =
         fetch_remote_object::<Note>(context.client(), comment_ap_id, recursion_counter).await?;
-      let comment = Comment::from_apub(
-        &comment,
-        context,
-        comment_ap_id.to_owned(),
-        recursion_counter,
-        false,
-      )
-      .await?;
+      let comment = Comment::from_apub(&comment, context, comment_ap_id, recursion_counter).await?;
 
       let post_id = comment.post_id;
       let post = blocking(context.pool(), move |conn| Post::read(conn, post_id)).await??;
@@ -94,7 +80,7 @@ pub async fn get_or_fetch_and_insert_comment(
   }
 }
 
-pub async fn get_or_fetch_and_insert_post_or_comment(
+pub(crate) async fn get_or_fetch_and_insert_post_or_comment(
   ap_id: &Url,
   context: &LemmyContext,
   recursion_counter: &mut i32,
