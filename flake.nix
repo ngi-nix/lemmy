@@ -26,8 +26,8 @@
       # A Nixpkgs overlay.
       overlay = final: prev: {
 
-        lemmy = with final; final.callPackage ({ inShell ? false }: stdenv.mkDerivation rec {
-          name = "lemmy-${version}";
+        lemmy_server = with final; final.callPackage ({ inShell ? false }: stdenv.mkDerivation rec {
+          name = "lemmy_server-${version}";
 
           # In 'nix develop', we don't need a copy of the source tree
           # in the Nix store.
@@ -65,36 +65,28 @@
               cargo install --frozen --offline --path . --root $out
               rm $out/.crates.toml
             '';
-
-          exePath = "bin/lemmy_server";
         }) {};
-
       };
 
       # Provide some binary packages for selected system types.
       packages = forAllSystems (system:
         {
-          inherit (nixpkgsFor.${system}) lemmy;
+          inherit (nixpkgsFor.${system}) lemmy_server;
         });
 
       # The default package for 'nix build'. This makes sense if the
       # flake provides only one package or there is a clear "main"
       # package.
-      defaultPackage = forAllSystems (system: self.packages.${system}.lemmy);
+      defaultPackage = forAllSystems (system: self.packages.${system}.lemmy_server);
 
       # Provide a 'nix develop' environment for interactive hacking.
-      devShell = forAllSystems (system: self.packages.${system}.lemmy.override { inShell = true; });
+      devShell = forAllSystems (system: self.packages.${system}.lemmy_server.override { inShell = true; });
 
       # A NixOS module.
-      nixosModules.lemmy =
+      nixosModules.lemmy_server =
         { pkgs, ... }:
         {
           nixpkgs.overlays = [ self.overlay ];
-
-          systemd.services.lemmy = {
-            wantedBy = [ "multi-user.target" ];
-            serviceConfig.ExecStart = "${pkgs.lemmy}/bin/lemmy_server";
-          };
         };
 
       # Tests run by 'nix flake check' and by Hydra.
@@ -103,7 +95,7 @@
           with nixpkgsFor.${system};
 
           {
-            inherit (self.packages.${system}) lemmy;
+            inherit (self.packages.${system}) lemmy_server;
 
             # A VM test of the NixOS module.
             vmTest =
@@ -114,7 +106,7 @@
               makeTest {
                 nodes = {
                   client = { ... }: {
-                    imports = [ self.nixosModules.lemmy ];
+                    imports = [ self.nixosModules.lemmy_server ];
                   };
                 };
 
