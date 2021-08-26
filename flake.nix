@@ -65,6 +65,8 @@
               cargo install --frozen --offline --path . --root $out
               rm $out/.crates.toml
             '';
+
+          exePath = "bin/lemmy_server";
         }) {};
 
       };
